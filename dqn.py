@@ -42,7 +42,6 @@ class DQNAgent:
         self.batch_size = batch_size
 
     def get_action(self, obs):
-        """Epsilon-greedy action selection."""
         if np.random.random() < self.epsilon:
             return self.env.action_space.sample()
         else:
@@ -111,7 +110,8 @@ class DQNAgent:
                     self.replay()
 
                 state = next_state
-                self.decay_epsilon()
+
+            self.decay_epsilon()
                 
             print(f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}")
             scores.append(score)
@@ -126,15 +126,15 @@ class DQNAgent:
 
 
     def decay_epsilon(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+        self.epsilon = max(self.epsilon_min, self.epsilon*self.epsilon_decay)
 
     def load(self, model):
         self.q_net.load_state_dict(torch.load(model, weights_only=True))
         self.q_net.eval()
 
 def play(agent):
-    agent.epsilon = 0
-    agent.epsilon_min = 0
+    # agent.epsilon = 0
+    # agent.epsilon_min = 0
     while True:
         obs, _ = env.reset()
 
@@ -147,7 +147,7 @@ def play(agent):
         
         time.sleep(1)
 
-def test(agent, episodes=1000):
+def test(agent, episodes=200):
     agent.epsilon = 0
     agent.epsilon_min = 0
     
@@ -177,18 +177,25 @@ def test(agent, episodes=1000):
         ax.plot(scores_avg)
         fig.canvas.flush_events()
 
+    print(f"average: {np.mean(scores)}")
+
 if __name__ == "__main__":
+    # env = gym.make("CartPole-v1", render_mode="rgb_array")
+    # env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
+    #                                 episode_trigger=lambda x: x%50 == 0)
+    # agent = DQNAgent(env)
+    # agent.load("model_params")
+    # agent.epsilon = 0.5
+    # agent.epsilon_min = 0.01
+    
+    # agent.train(episodes=500)
+
     env = gym.make("CartPole-v1", render_mode="rgb_array")
     env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
                                     episode_trigger=lambda x: x%50 == 0)
+    # agent.env = env
     agent = DQNAgent(env)
-    agent.load("model_params")
-    agent.epsilon = 1.0
-    agent.epsilon_min = 0.05
+    agent.load("model_params.solved")
+    test(agent)
 
-    agent.train(episodes=500)
-
-    env = gym.make("CartPole-v1", render_mode="human")
-    agent.env = env
-
-    play(agent)
+    # play(agent)
