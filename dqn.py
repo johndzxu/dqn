@@ -1,8 +1,10 @@
 import random
+import time
 import gymnasium as gym
 import numpy as np
 import torch
 
+from matplotlib import pyplot as plt
 from torch import nn
 from collections import deque
 import torch.optim as optim
@@ -14,11 +16,11 @@ class QNetwork(nn.Module):
     def __init__(self):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(4, 24),
+            nn.Linear(4, 120),
             nn.ReLU(),
-            nn.Linear(24, 24),
+            nn.Linear(120, 120),
             nn.ReLU(),
-            nn.Linear(24, 2),
+            nn.Linear(120, 2),
         )
 
     def forward(self, x):
@@ -26,8 +28,8 @@ class QNetwork(nn.Module):
 
     
 class DQNAgent:
-    def __init__(self, env, epsilon=1.0, epsilon_min = 0.01, epsilon_decay=0.999,
-                 memory_size=2000, lr=0.001, gamma=0.95, batch_size=32):
+    def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
+                 memory_size=10000, lr=0.001, gamma=0.99, batch_size=128):
         self.env = env
         self.q_net = QNetwork().to(device)
         self.epsilon = epsilon
@@ -87,8 +89,13 @@ class DQNAgent:
 
 
     def train(self, episodes):
+        scores = []
+        scores_avg = []
+
+        plt.ion()
+        fig, ax = plt.subplots()
+
         for episode in range(episodes):
-            print(f"Episode {episode}")
             state, _ = self.env.reset()
             done = False
             score = 0
@@ -107,38 +114,81 @@ class DQNAgent:
                 self.decay_epsilon()
                 
             print(f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}")
-        
-        torch.save(self.q_net.state_dict(), "./model")
+            scores.append(score)
+            scores_avg.append(np.mean(scores[-10:]))
+
+            ax.cla()
+            ax.plot(scores)
+            ax.plot(scores_avg)
+            fig.canvas.flush_events()
+
+        torch.save(self.q_net.state_dict(), "model_params")
 
 
     def decay_epsilon(self):
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
     def load(self, model):
-        self.q_net.load_state_dict(torch.load(model))
+        self.q_net.load_state_dict(torch.load(model, weights_only=True))
         self.q_net.eval()
 
+def play(agent):
+    agent.epsilon = 0
+    agent.epsilon_min = 0
+    while True:
+        obs, _ = env.reset()
+
+        episode_over = False
+        while not episode_over:
+            action = agent.get_action(obs)
+            obs, _, terminated, truncated, _ = agent.env.step(action)
+
+            episode_over = terminated or truncated
+        
+        time.sleep(1)
+
+def test(agent, episodes=1000):
+    agent.epsilon = 0
+    agent.epsilon_min = 0
+    
+    scores = []
+    scores_avg = []
+
+    plt.ion()
+    fig, ax = plt.subplots()
+
+    for episode in range(episodes):
+        state, _ = agent.env.reset()
+        
+        done = False
+        score = 0
+        while not done:
+            action = agent.get_action(state)
+            state, reward, terminated, truncated, _ = agent.env.step(action)
+            done = terminated or truncated
+            score += reward
+            
+        print(f"episode: {episode}/{episodes}, score: {score}")
+        scores.append(score)
+        scores_avg.append(np.mean(scores[-10:]))
+
+        ax.cla()
+        ax.plot(scores)
+        ax.plot(scores_avg)
+        fig.canvas.flush_events()
 
 if __name__ == "__main__":
-    #env = gym.make("CartPole-v1", render_mode="rgb_array")
-    #env = gym.wrappers.RecordVideo(env=env, video_folder="videos/",
-    #                                episode_trigger=lambda x: x % 50 == 0)
-    #agent = DQNAgent(env)
+    env = gym.make("CartPole-v1", render_mode="rgb_array")
+    env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
+                                    episode_trigger=lambda x: x%50 == 0)
+    agent = DQNAgent(env)
+    agent.load("model_params")
+    agent.epsilon = 1.0
+    agent.epsilon_min = 0.05
 
-    #agent.train(episodes=1000)
-    #print("Training complete.")
+    agent.train(episodes=500)
 
     env = gym.make("CartPole-v1", render_mode="human")
-    agent = DQNAgent(env)
-    agent.load("model")
+    agent.env = env
 
-    observation, info = env.reset()
-
-    episode_over = False
-    while not episode_over:
-        action = env.action_space.sample()  # agent policy that uses the observation and info
-        observation, reward, terminated, truncated, info = env.step(action)
-
-        episode_over = terminated or truncated
-
-    env.close()
+    play(agent)
