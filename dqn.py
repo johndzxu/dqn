@@ -13,14 +13,14 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 class QNetwork(nn.Module):
-    def __init__(self):
+    def __init__(self, in_dim, out_dim):
         super().__init__()
         self.linear_relu_stack = nn.Sequential(
-            nn.Linear(4, 120),
+            nn.Linear(in_dim, 120),
             nn.ReLU(),
             nn.Linear(120, 120),
             nn.ReLU(),
-            nn.Linear(120, 2),
+            nn.Linear(120, out_dim),
         )
 
     def forward(self, x):
@@ -28,10 +28,10 @@ class QNetwork(nn.Module):
 
     
 class DQNAgent:
-    def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
+    def __init__(self, env, in_dim, out_dim, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
                  memory_size=10000, lr=0.001, gamma=0.99, batch_size=128):
         self.env = env
-        self.q_net = QNetwork().to(device)
+        self.q_net = QNetwork(in_dim, out_dim).to(device)
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.epsilon_decay = epsilon_decay
@@ -52,11 +52,11 @@ class DQNAgent:
         
     def replay(self):
         minibatch = random.sample(self.memory, self.batch_size)
-        states = []
-        actions = []
-        rewards = []
-        next_states = []
-        dones = []
+        states = np.array()
+        actions = np.array()
+        rewards = np.array()
+        next_states = np.array()
+        dones = np.array()
 
 
         for state, action, reward, next_state, done in minibatch:
@@ -120,9 +120,11 @@ class DQNAgent:
             ax.cla()
             ax.plot(scores)
             ax.plot(scores_avg)
+            ax.set_xlabel("Training Episode")
+            ax.set_ylabel("Score")
             fig.canvas.flush_events()
 
-        torch.save(self.q_net.state_dict(), "model_params")
+        torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
 
 
     def decay_epsilon(self):
@@ -156,6 +158,7 @@ def test(agent, episodes=200):
 
     plt.ion()
     fig, ax = plt.subplots()
+    
 
     for episode in range(episodes):
         state, _ = agent.env.reset()
@@ -175,27 +178,32 @@ def test(agent, episodes=200):
         ax.cla()
         ax.plot(scores)
         ax.plot(scores_avg)
+        ax.set_xlabel("Episode")
+        ax.set_ylabel("Score")
         fig.canvas.flush_events()
 
     print(f"average: {np.mean(scores)}")
 
 if __name__ == "__main__":
+    env = gym.make("LunarLander-v3", continuous=False, gravity=-10.0,
+               enable_wind=False, wind_power=15.0, turbulence_power=1.5, render_mode="rgb_array")
+    # env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
+    #                                 name_prefix=f"{env.spec.name}",
+    #                                 episode_trigger=lambda x: x%50 == 0)
+    # agent = DQNAgent(env, 8, 4)
+    # # agent.load("model_params/MountainCar.params")
+    # # agent.epsilon = 0.5
+    # # agent.epsilon_min = 0.01
+    
+    # agent.train(episodes=500)
+    
+
     # env = gym.make("CartPole-v1", render_mode="rgb_array")
     # env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
     #                                 episode_trigger=lambda x: x%50 == 0)
-    # agent = DQNAgent(env)
-    # agent.load("model_params")
-    # agent.epsilon = 0.5
-    # agent.epsilon_min = 0.01
-    
-    # agent.train(episodes=500)
-
-    env = gym.make("CartPole-v1", render_mode="rgb_array")
-    env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
-                                    episode_trigger=lambda x: x%50 == 0)
     # agent.env = env
-    agent = DQNAgent(env)
-    agent.load("model_params.solved")
+    agent = DQNAgent(env, 8, 4)
+    agent.load("model_params/LunarLander.params")
     test(agent)
 
     # play(agent)
