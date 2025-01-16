@@ -37,7 +37,7 @@ class DQN(nn.Module):
             nn.MaxPool2d(kernel_size=(2, 2)))
         
         self.fc1 = nn.Sequential(
-            nn.Linear(768, 256),
+            nn.Linear(128, 256),
             nn.ReLU())
 
         self.fc2 = nn.Linear(256, 6)
@@ -52,7 +52,14 @@ class DQN(nn.Module):
         x = self.fc1(x)
         return self.fc2(x)
 
+class EpsilonDecaySchedule:
+        def __init__(self, start, end, episodes):
+            self.step = 0
+            self.schedule = np.linspace(start, end, episodes)
 
+        def next_epsilon(self):
+            self.step += 1
+            return self.schedule[self.step]
     
 class DQNAgent:
     def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
@@ -77,9 +84,9 @@ class DQNAgent:
             return action
         
     def preprocess(self, sequence):
-        t = torch.empty(3, 210, 160)
+        t = torch.empty(3, 84, 84)
         for i in range(len(sequence[-3:])):
-            t[i] = torch.FloatTensor(sequence[i])
+            t[i] = torch.FloatTensor(sequence[i].squeeze(0).squeeze(0)[20:104])
         return t
         
         
@@ -109,6 +116,7 @@ class DQNAgent:
 
 
     def train(self, episodes):
+        epsilon_schedule = EpsilonDecaySchedule(self.epsilon, self.epsilon_min, episodes)
         scores = []
         scores_avg = []
 
@@ -125,8 +133,7 @@ class DQNAgent:
             done = False
             score = 0
 
-            for t in range(100):
-                print(t)
+            for t in range(200):
                 action = self.get_action(preprocessed)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
                 done = False
@@ -140,7 +147,8 @@ class DQNAgent:
                     self.replay()
 
                 state = next_state
-                self.decay_epsilon()
+
+            self.epsilon = epsilon_schedule.next_epsilon()
 
             print(f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}")
             scores.append(score)
@@ -152,6 +160,8 @@ class DQNAgent:
             ax.set_xlabel("Training Episode")
             ax.set_ylabel("Score")
             fig.canvas.flush_events()
+            if episode%100 == 0:
+                torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
 
         torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
 
@@ -212,11 +222,27 @@ def test(agent, episodes=200):
 
     print(f"average: {np.mean(scores)}")
 
+class DownsampleFrameWrapper(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+
+    def reset(self):
+        obs, info = self.env.reset()
+        obs_t = torch.FloatTensor(obs).unsqueeze(0).unsqueeze(0)
+        return nn.functional.interpolate(obs_t, (110, 84), mode="bilinear"), info
+
+    def step(self, action):
+        next_state, reward, terminated, truncated, info = self.env.step(action)
+        next_state_t = torch.FloatTensor(next_state).unsqueeze(0).unsqueeze(0)
+        return nn.functional.interpolate(next_state_t, (110, 84), mode="bilinear"), reward, terminated, truncated, info
+
 if __name__ == "__main__":
     env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
     env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
                                     name_prefix=f"{env.spec.name}",
                                     episode_trigger=lambda x: x%50 == 0)
+    env = DownsampleFrameWrapper(env)
+
     agent = DQNAgent(env)
     # # agent.load("model_params/MountainCar.params")
     # # agent.epsilon = 0.5
