@@ -63,7 +63,7 @@ class EpsilonDecaySchedule:
     
 class DQNAgent:
     def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
-                 memory_size=10000, lr=0.001, gamma=0.99, batch_size=128):
+                 memory_size=1000000, lr=0.001, gamma=0.99, batch_size=32):
         self.env = env
         self.q_net = DQN().to(device)
         self.epsilon = epsilon
@@ -133,7 +133,7 @@ class DQNAgent:
             done = False
             score = 0
 
-            for t in range(200):
+            for _ in range(500):
                 action = self.get_action(preprocessed)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
                 done = False
@@ -244,11 +244,11 @@ if __name__ == "__main__":
     env = DownsampleFrameWrapper(env)
 
     agent = DQNAgent(env)
-    # # agent.load("model_params/MountainCar.params")
-    # # agent.epsilon = 0.5
-    # # agent.epsilon_min = 0.01
+    agent.load("model_params/Pong.params")
+    agent.epsilon = 0.5
+    agent.epsilon_min = 0.01
     
-    agent.train(episodes=500)
+    agent.train(episodes=1000)
     
 
     # env = gym.make("CartPole-v1", render_mode="rgb_array")
@@ -257,6 +257,6 @@ if __name__ == "__main__":
     # agent.env = env
     # agent = DQNAgent(env, 8, 4)
     # agent.load("model_params/LunarLander.params")
-    # test(agent)
+    test(agent)
 
     # play(agent)
