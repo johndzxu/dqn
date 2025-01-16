@@ -12,6 +12,7 @@ import torch.optim as optim
 
 gym.register_envs(ale_py)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+torch.set_num_threads(7)
 
 
 class DQN(nn.Module):
@@ -59,7 +60,7 @@ class EpsilonDecaySchedule:
 
         def next_epsilon(self):
             self.step += 1
-            return self.schedule[self.step]
+            return self.schedule[min(self.step, len(self.schedule))]
     
 class DQNAgent:
     def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
@@ -160,8 +161,9 @@ class DQNAgent:
             ax.set_xlabel("Training Episode")
             ax.set_ylabel("Score")
             fig.canvas.flush_events()
-            if episode%100 == 0:
-                torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
+            if episode%50 == 0:
+                torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params.save")
+                print("Model parameters saved")
 
         torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
 
