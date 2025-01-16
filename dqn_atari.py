@@ -20,25 +20,23 @@ class DQN(nn.Module):
         super().__init__()
 
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels=3,
+            nn.Conv2d(in_channels=4,
                         out_channels=16,
                         kernel_size=8,
                         stride=4,
-                        padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)))
+                        padding=0),
+            nn.ReLU())
         
         self.conv2 = nn.Sequential(
             nn.Conv2d(in_channels=16,
                         out_channels=32,
                         kernel_size=4,
                         stride=2,
-                        padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=(2, 2)))
+                        padding=0),
+            nn.ReLU())
         
         self.fc1 = nn.Sequential(
-            nn.Linear(128, 256),
+            nn.Linear(2592, 256),
             nn.ReLU())
 
         self.fc2 = nn.Linear(256, 6)
@@ -60,7 +58,7 @@ class EpsilonDecaySchedule:
 
         def next_epsilon(self):
             self.step += 1
-            return self.schedule[min(self.step, len(self.schedule))]
+            return self.schedule[min(self.step, len(self.schedule)-1)]
     
 class DQNAgent:
     def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
@@ -75,6 +73,7 @@ class DQNAgent:
         self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
         self.gamma = gamma
         self.batch_size = batch_size
+        self.k = 4
 
     def get_action(self, history):
         if np.random.random() < self.epsilon:
@@ -83,13 +82,6 @@ class DQNAgent:
             q_values = self.q_net(history)
             action = torch.argmax(q_values).item()
             return action
-        
-    def preprocess(self, sequence):
-        t = torch.empty(3, 84, 84)
-        for i in range(len(sequence[-3:])):
-            t[i] = torch.FloatTensor(sequence[i].squeeze(0).squeeze(0)[20:104])
-        return t
-        
         
     def replay(self):
         minibatch = random.sample(self.memory, self.batch_size)
@@ -129,21 +121,19 @@ class DQNAgent:
             state, _ = self.env.reset()
 
             sequence.append(state)
-            preprocessed = self.preprocess(sequence)
 
             done = False
             score = 0
 
             for _ in range(500):
-                action = self.get_action(preprocessed)
+                action = self.get_action(state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
                 done = False
                 score += reward
 
                 sequence.append(next_state)
-                next_preprocessed = self.preprocess(sequence)
 
-                self.memory.append([preprocessed, action, reward, next_preprocessed, done])
+                self.memory.append([state, action, reward, next_state, done])
                 if len(self.memory) >= self.batch_size:
                     self.replay()
 
@@ -161,11 +151,12 @@ class DQNAgent:
             ax.set_xlabel("Training Episode")
             ax.set_ylabel("Score")
             fig.canvas.flush_events()
-            if episode%50 == 0:
+            if (episode+1)%50 == 0:
                 torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params.save")
-                print("Model parameters saved")
+                print("Model parameters saved.")
 
         torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
+        print("Training completed. Model parameters saved.")
 
 
     def decay_epsilon(self):
@@ -231,12 +222,40 @@ class DownsampleFrameWrapper(gym.Wrapper):
     def reset(self):
         obs, info = self.env.reset()
         obs_t = torch.FloatTensor(obs).unsqueeze(0).unsqueeze(0)
-        return nn.functional.interpolate(obs_t, (110, 84), mode="bilinear"), info
+        downsampled = nn.functional.interpolate(
+            obs_t, (110, 84), mode="bilinear"
+        ).squeeze(0).squeeze(0)
+        downsampled = downsampled[20:104]
+        return downsampled, info
 
     def step(self, action):
         next_state, reward, terminated, truncated, info = self.env.step(action)
         next_state_t = torch.FloatTensor(next_state).unsqueeze(0).unsqueeze(0)
-        return nn.functional.interpolate(next_state_t, (110, 84), mode="bilinear"), reward, terminated, truncated, info
+        downsampled = nn.functional.interpolate(
+            next_state_t, (110, 84), mode="bilinear"
+        ).squeeze(0).squeeze(0)
+        downsampled = downsampled[20:104]
+        return downsampled, reward, terminated, truncated, info
+
+class StackFrameWrapper(gym.Wrapper):
+    def __init__(self, env, k):
+        gym.Wrapper.__init__(self, env)
+        self.buffer = deque(maxlen=k)
+        self.k = k
+
+    def reset(self):
+        obs, info = self.env.reset()
+        
+        for _ in range(self.k):
+            self.buffer.append(obs)
+        return torch.stack(tuple(self.buffer)), info
+    
+    def step(self, action):
+        next_state, reward, terminated, truncated, info = self.env.step(action)
+        self.buffer.append(next_state)
+        
+        return torch.stack(tuple(self.buffer)), reward, terminated, truncated, info
+
 
 if __name__ == "__main__":
     env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
@@ -244,13 +263,14 @@ if __name__ == "__main__":
                                     name_prefix=f"{env.spec.name}",
                                     episode_trigger=lambda x: x%50 == 0)
     env = DownsampleFrameWrapper(env)
+    env = StackFrameWrapper(env, 4)
 
     agent = DQNAgent(env)
-    agent.load("model_params/Pong.params")
+    # agent.load("model_params/Pong.params")
     agent.epsilon = 0.5
     agent.epsilon_min = 0.01
     
-    agent.train(episodes=1000)
+    agent.train(episodes=5)
     
 
     # env = gym.make("CartPole-v1", render_mode="rgb_array")
