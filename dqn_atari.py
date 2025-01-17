@@ -4,6 +4,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 import ale_py
+import logging
 
 from matplotlib import pyplot as plt
 from torch import nn, tensor
@@ -14,6 +15,13 @@ gym.register_envs(ale_py)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 torch.set_num_threads(7)
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    filename="dqn.log",
+    encoding="utf-8",
+    filemode="a"
+)
 
 class DQN(nn.Module):
     def __init__(self):
@@ -52,9 +60,9 @@ class DQN(nn.Module):
         return self.fc2(x)
 
 class EpsilonDecaySchedule:
-        def __init__(self, start, end, episodes):
+        def __init__(self, start, end, steps):
             self.step = 0
-            self.schedule = np.linspace(start, end, episodes)
+            self.schedule = np.linspace(start, end, steps)
 
         def next_epsilon(self):
             self.step += 1
@@ -62,7 +70,7 @@ class EpsilonDecaySchedule:
     
 class DQNAgent:
     def __init__(self, env, epsilon=1.0, epsilon_min = 0.05, epsilon_decay=0.95,
-                 memory_size=1000000, lr=0.001, gamma=0.99, batch_size=32):
+                 memory_size=100000, lr=0.001, gamma=0.99, batch_size=32):
         self.env = env
         self.q_net = DQN().to(device)
         self.epsilon = epsilon
@@ -109,14 +117,14 @@ class DQNAgent:
 
 
     def train(self, episodes):
-        epsilon_schedule = EpsilonDecaySchedule(self.epsilon, self.epsilon_min, episodes)
+        epsilon_schedule = EpsilonDecaySchedule(self.epsilon, self.epsilon_min, 1000)
         scores = []
         scores_avg = []
 
-        plt.ion()
-        fig, ax = plt.subplots()
+        # plt.ion()
+        # fig, ax = plt.subplots()
 
-        for episode in range(episodes):
+        for episode in range(1, episodes+1):
             sequence = []
             state, _ = self.env.reset()
 
@@ -125,15 +133,15 @@ class DQNAgent:
             done = False
             score = 0
 
-            for _ in range(500):
+            while not done:
                 action = self.get_action(state)
                 next_state, reward, terminated, truncated, _ = self.env.step(action)
-                done = False
+                done = terminated or truncated
                 score += reward
 
                 sequence.append(next_state)
 
-                self.memory.append([state, action, reward, next_state, done])
+                self.memory.append([state, action, reward, next_state, (reward != 0)])
                 if len(self.memory) >= self.batch_size:
                     self.replay()
 
@@ -141,22 +149,22 @@ class DQNAgent:
 
             self.epsilon = epsilon_schedule.next_epsilon()
 
-            print(f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}")
+            logging.info(f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}")
             scores.append(score)
             scores_avg.append(np.mean(scores[-10:]))
 
-            ax.cla()
-            ax.plot(scores)
-            ax.plot(scores_avg)
-            ax.set_xlabel("Training Episode")
-            ax.set_ylabel("Score")
-            fig.canvas.flush_events()
-            if (episode+1)%50 == 0:
-                torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params.save")
-                print("Model parameters saved.")
+            # ax.cla()
+            # ax.plot(scores)
+            # ax.plot(scores_avg)
+            # ax.set_xlabel("Training Episode")
+            # ax.set_ylabel("Score")
+            # fig.canvas.flush_events()
+            if (episode+1)%25 == 0:
+                torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}2.params.save")
+                logging.info("Model parameters saved.")
 
-        torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}.params")
-        print("Training completed. Model parameters saved.")
+        torch.save(self.q_net.state_dict(), f"model_params/{self.env.spec.name}2.params")
+        logging.info("Training completed. Model parameters saved.")
 
 
     def decay_epsilon(self):
@@ -191,8 +199,8 @@ def test(agent, episodes=200):
     plt.ion()
     fig, ax = plt.subplots()
     
-
     for episode in range(episodes):
+        print(f"episode {episode}")
         state, _ = agent.env.reset()
         
         done = False
@@ -256,29 +264,33 @@ class StackFrameWrapper(gym.Wrapper):
         
         return torch.stack(tuple(self.buffer)), reward, terminated, truncated, info
 
+class MagnifyRewardWrapper(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+
+    def reset(self):
+        return self.env.reset()
+    
+    def step(self, action):
+        next_state, reward, terminated, truncated, info = self.env.step(action)
+        if reward == 1:
+            reward = 2
+        return next_state, reward, terminated, truncated, info
 
 if __name__ == "__main__":
     env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
+    # env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
     env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
                                     name_prefix=f"{env.spec.name}",
-                                    episode_trigger=lambda x: x%50 == 0)
+                                    episode_trigger=lambda x: x%25 == 0)
     env = DownsampleFrameWrapper(env)
     env = StackFrameWrapper(env, 4)
+    env = MagnifyRewardWrapper(env)
 
     agent = DQNAgent(env)
-    # agent.load("model_params/Pong.params")
-    agent.epsilon = 0.5
-    agent.epsilon_min = 0.01
+    # agent.load("model_params/Pong.params.save")
+    # agent.epsilon = 0.1
+    # agent.epsilon_min = 0.1
     
-    agent.train(episodes=5)
-    
-
-    # env = gym.make("CartPole-v1", render_mode="rgb_array")
-    # env = gym.wrappers.RecordVideo(env=env, video_folder="videos",
-    #                                 episode_trigger=lambda x: x%50 == 0)
-    # agent.env = env
-    # agent = DQNAgent(env, 8, 4)
-    # agent.load("model_params/LunarLander.params")
-    test(agent)
-
-    # play(agent)
+    logging.info("Begin training")
+    agent.train(episodes=10000)
