@@ -81,7 +81,7 @@ if __name__ == "__main__":
         env,
         video_folder=f"videos/{env.spec.name}",
         name_prefix=f"{env.spec.name}",
-        episode_trigger=lambda x: x % 50 == 0,
+        episode_trigger=lambda x: x % 100 == 0
     )
     env = PreprocessFrameWrapper(env)
     env = StackFramesWrapper(env, 4)
