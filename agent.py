@@ -24,10 +24,10 @@ class DQNAgent:
         self,
         env,
         epsilon=1.0,
-        epsilon_min=0.05,
+        epsilon_min=0.1,
         epsilon_decay_steps=1000000,
         memory_size=100000,
-        learning_rate=0.001,
+        learning_rate=0.00025,
         gamma=0.99,
         batch_size=32,
         k=4,
@@ -83,9 +83,6 @@ class DQNAgent:
         episode_rewards = []
         avg_episode_rewards = []
 
-        # plt.ion()
-        # fig, ax = plt.subplots()
-
         for episode in range(1, episodes + 1):
             obs, _ = self.env.reset()
             done = False
@@ -112,13 +109,6 @@ class DQNAgent:
                 avg_episode_rewards.append(np.mean(avg_episode_rewards[-10:]))
             else:
                 avg_episode_rewards.append(0)
-
-            # ax.cla()
-            # ax.plot(scores)
-            # ax.plot(scores_avg)
-            # ax.set_xlabel("Training Episode")
-            # ax.set_ylabel("Score")
-            # fig.canvas.flush_events()
 
             if episode % 25 == 0:
                 self.save(f"model_params/{self.env.spec.name}.params.tmp")

@@ -15,7 +15,7 @@ logging.basicConfig(
 )
 
 gym.register_envs(ale_py)
-# torch.set_num_threads(7)
+torch.set_num_threads(7)
 
 
 def play(agent):
