@@ -69,7 +69,9 @@ class DQNAgent:
         with torch.no_grad():
             next_q_values = self.Q(next_obs_batch)
             max_next_q_values = next_q_values.max(dim=1)[0]
-            targets = reward_batch + self.gamma * max_next_q_values * (~done_batch).float()
+            targets = (
+                reward_batch + self.gamma * max_next_q_values * (~done_batch).float()
+            )
 
         self.optimizer.zero_grad()
         loss = self.criterion(q_values, targets)
@@ -90,7 +92,7 @@ class DQNAgent:
 
             while not done:
                 action = self.get_action(obs[np.newaxis])
-                next_obs, reward, terminated, truncated, _ = self.env.step(action)
+                next_obs, reward, terminated, truncated, info = self.env.step(action)
                 done = terminated or truncated
                 episode_reward += reward
 
@@ -103,6 +105,9 @@ class DQNAgent:
 
             logging.info(
                 f"Episode: {episode}/{episodes}, Reward: {episode_reward}, Epsilon: {self.epsilon:.2}"
+            )
+            logging.info(
+                f"Episode Frame: {info.episode_frame_number}, Total Frame: {info.frame_number}"
             )
             episode_rewards.append(episode_reward)
             if episode >= 10:
