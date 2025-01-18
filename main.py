@@ -81,12 +81,14 @@ if __name__ == "__main__":
         env,
         video_folder=f"videos/{env.spec.name}",
         name_prefix=f"{env.spec.name}",
-        episode_trigger=lambda x: x % 100 == 0
+        episode_trigger=lambda x: x % 100 == 0,
     )
     env = PreprocessFrameWrapper(env)
     env = StackFramesWrapper(env, 4)
 
-    agent = DQNAgent(env)
+    agent = DQNAgent(env, epsilon=0.1, memory_size=200000, learning_rate=0.001)
+    logging.info("Loading model parameters...")
+    agent.load("model_params/Pong.params.tmp")
 
     logging.info("Begin training")
     agent.learn(episodes=10000)
