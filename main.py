@@ -1,6 +1,10 @@
 import logging
+
+import ale_py
+from matplotlib import pyplot as plt
+import torch
 from wrappers import *
-from dqn_atari import DQNAgent
+from agent import DQNAgent
 
 logging.basicConfig(
     level=logging.INFO,
@@ -10,56 +14,60 @@ logging.basicConfig(
     filemode="a",
 )
 
+gym.register_envs(ale_py)
+# torch.set_num_threads(7)
+
 
 def play(agent):
-    # agent.epsilon = 0
-    # agent.epsilon_min = 0
+    agent.epsilon = 0
     while True:
         obs, _ = env.reset()
-
         episode_over = False
-        while not episode_over:
-            action = agent.get_action(obs)
-            obs, _, terminated, truncated, _ = agent.env.step(action)
+        episode_reward = 0
 
+        while not episode_over:
+            action = agent.get_action(obs[np.newaxis])
+            obs, reward, terminated, truncated, _ = agent.env.step(action)
+            episode_reward += reward
             episode_over = terminated or truncated
 
-        time.sleep(1)
+        print(f"Episode reward: {episode_reward}")
+        input("Press Enter to continue...")
 
 
-def test(agent, episodes=200):
+def test(agent, episodes=100):
     agent.epsilon = 0
-    agent.epsilon_min = 0
 
-    scores = []
-    scores_avg = []
+    episode_rewards = []
+    avg_episode_rewards = []
 
     plt.ion()
     fig, ax = plt.subplots()
 
-    for episode in range(episodes):
-        print(f"episode {episode}")
-        state, _ = agent.env.reset()
+    for episode in range(1, episodes + 1):
+        obs, _ = agent.env.reset()
 
         done = False
-        score = 0
-        for t in range(500):
-            action = agent.get_action(state)
-            state, reward, terminated, truncated, _ = agent.env.step(action)
-            score += reward
+        episode_reward = 0
+        while not done:
+            action = agent.get_action(obs[np.newaxis])
+            obs, reward, terminated, truncated, _ = agent.env.step(action)
 
-        print(f"episode: {episode}/{episodes}, score: {score}")
-        scores.append(score)
-        scores_avg.append(np.mean(scores[-10:]))
+            done = terminated or truncated
+            episode_reward += reward
+
+        print(f"Episode: {episode}/{episodes}, Reward: {episode_reward}")
+        episode_rewards.append(episode_reward)
+        avg_episode_rewards.append(np.mean(episode_rewards[-10:]))
 
         ax.cla()
-        ax.plot(scores)
-        ax.plot(scores_avg)
+        ax.plot(episode_rewards)
+        ax.plot(avg_episode_rewards)
         ax.set_xlabel("Episode")
-        ax.set_ylabel("Score")
+        ax.set_ylabel("Reward per Episode")
         fig.canvas.flush_events()
 
-    print(f"average: {np.mean(scores)}")
+    print(f"Average: {np.mean(episode_rewards)}")
 
 
 def main():
@@ -68,21 +76,18 @@ def main():
 
 if __name__ == "__main__":
     env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
-    # env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
+
     env = gym.wrappers.RecordVideo(
-        env=env,
-        video_folder="videos",
+        env,
+        video_folder=f"videos/{env.spec.name}",
         name_prefix=f"{env.spec.name}",
-        episode_trigger=lambda x: x % 25 == 0,
+        episode_trigger=lambda x: x % 50 == 0,
     )
-    env = DownsampleFrameWrapper(env)
-    env = StackFrameWrapper(env, 4)
-    env = MagnifyRewardWrapper(env)
+    env = PreprocessFrameWrapper(env)
+    env = StackFramesWrapper(env, 4)
 
     agent = DQNAgent(env)
-    # agent.load("model_params/Pong.params.save")
-    # agent.epsilon = 0.1
-    # agent.epsilon_min = 0.1
 
     logging.info("Begin training")
-    agent.train(episodes=10000)
+    agent.learn(episodes=10000)
+    # play(agent)

@@ -1,3 +1,14 @@
+from collections import deque
+import logging
+import random
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+from dqn_atari import DQN
+
+
 class EpsilonDecaySchedule:
     def __init__(self, start, end, steps):
         self.step = 0
@@ -14,94 +25,93 @@ class DQNAgent:
         env,
         epsilon=1.0,
         epsilon_min=0.05,
-        epsilon_decay=0.95,
+        epsilon_decay_steps=1000000,
         memory_size=100000,
-        lr=0.001,
+        learning_rate=0.001,
         gamma=0.99,
         batch_size=32,
+        k=4,
+        num_actions=6,
     ):
         self.env = env
-        self.q_net = DQN().to(device)
+        self.Q = DQN(k, num_actions)
+        self.target_Q = DQN(k, num_actions)
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
-        self.epsilon_decay = epsilon_decay
+        self.epsilon_decay_steps = epsilon_decay_steps
         self.memory = deque(maxlen=memory_size)
         self.criterion = nn.MSELoss()
-        self.optimizer = optim.Adam(self.q_net.parameters(), lr=lr)
+        self.optimizer = optim.Adam(self.Q.parameters(), lr=learning_rate)
         self.gamma = gamma
         self.batch_size = batch_size
-        self.k = 4
 
-    def get_action(self, history):
+    def get_action(self, obs: np.ndarray):
         if np.random.random() < self.epsilon:
             return self.env.action_space.sample()
         else:
-            q_values = self.q_net(history)
+            q_values = self.Q(torch.Tensor(obs))
             action = torch.argmax(q_values).item()
             return action
 
     def replay(self):
         minibatch = random.sample(self.memory, self.batch_size)
+        obs_batch, act_batch, reward_batch, next_obs_batch, done_batch = zip(*minibatch)
 
-        histories, actions, rewards, next_histories, dones = zip(*minibatch)
+        obs_batch = torch.as_tensor(np.array(obs_batch), dtype=torch.float32)
+        next_obs_batch = torch.as_tensor(np.array(next_obs_batch), dtype=torch.float32)
+        act_batch = torch.as_tensor(act_batch, dtype=torch.int64)
+        reward_batch = torch.as_tensor(reward_batch)
+        done_batch = torch.as_tensor(done_batch)
 
-        histories_t = torch.stack(histories).to(device)
-        actions_t = torch.tensor(actions, dtype=torch.int64).to(device)
-        rewards_t = torch.FloatTensor(rewards).to(device)
-        next_histories_t = torch.stack(next_histories).to(device)
-        dones_t = torch.FloatTensor(dones).to(device)
-
-        q_values = self.q_net(histories_t)
-        q_values = q_values.gather(1, actions_t.unsqueeze(-1)).squeeze(-1)
+        q_values = self.Q(obs_batch)
+        q_values = q_values.gather(1, act_batch.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            next_q_values = self.q_net(next_histories_t)
+            next_q_values = self.Q(next_obs_batch)
             max_next_q_values = next_q_values.max(dim=1)[0]
-            targets = rewards_t + self.gamma * max_next_q_values * (1 - dones_t)
+            targets = reward_batch + self.gamma * max_next_q_values * done_batch.long()
 
         self.optimizer.zero_grad()
         loss = self.criterion(q_values, targets)
         loss.backward()
         self.optimizer.step()
 
-    def train(self, episodes):
-        epsilon_schedule = EpsilonDecaySchedule(self.epsilon, self.epsilon_min, 1000)
-        scores = []
-        scores_avg = []
+    def learn(self, episodes):
+        epsilon_schedule = EpsilonDecaySchedule(
+            self.epsilon, self.epsilon_min, self.epsilon_decay_steps
+        )
+        episode_rewards = []
+        avg_episode_rewards = []
 
         # plt.ion()
         # fig, ax = plt.subplots()
 
         for episode in range(1, episodes + 1):
-            sequence = []
-            state, _ = self.env.reset()
-
-            sequence.append(state)
-
+            obs, _ = self.env.reset()
             done = False
-            score = 0
+            episode_reward = 0
 
             while not done:
-                action = self.get_action(state)
-                next_state, reward, terminated, truncated, _ = self.env.step(action)
+                action = self.get_action(obs[np.newaxis])
+                next_obs, reward, terminated, truncated, _ = self.env.step(action)
                 done = terminated or truncated
-                score += reward
+                episode_reward += reward
 
-                sequence.append(next_state)
-
-                self.memory.append([state, action, reward, next_state, (reward != 0)])
+                self.memory.append([obs, action, reward, next_obs, done])
                 if len(self.memory) >= self.batch_size:
                     self.replay()
 
-                state = next_state
-
-            self.epsilon = epsilon_schedule.next_epsilon()
+                obs = next_obs
+                self.epsilon = epsilon_schedule.next_epsilon()
 
             logging.info(
-                f"episode: {episode}/{episodes}, score: {score}, e: {self.epsilon:.2}"
+                f"Episode: {episode}/{episodes}, Reward: {episode_reward}, Epsilon: {self.epsilon:.2}"
             )
-            scores.append(score)
-            scores_avg.append(np.mean(scores[-10:]))
+            episode_rewards.append(episode_reward)
+            if episode >= 10:
+                avg_episode_rewards.append(np.mean(avg_episode_rewards[-10:]))
+            else:
+                avg_episode_rewards.append(0)
 
             # ax.cla()
             # ax.plot(scores)
@@ -109,21 +119,17 @@ class DQNAgent:
             # ax.set_xlabel("Training Episode")
             # ax.set_ylabel("Score")
             # fig.canvas.flush_events()
-            if (episode + 1) % 25 == 0:
-                torch.save(
-                    self.q_net.state_dict(),
-                    f"model_params/{self.env.spec.name}2.params.save",
-                )
+
+            if episode % 25 == 0:
+                self.save(f"model_params/{self.env.spec.name}.params.tmp")
+                logging.info(f"Last 10 Average: {avg_episode_rewards[-1]}")
                 logging.info("Model parameters saved.")
 
-        torch.save(
-            self.q_net.state_dict(), f"model_params/{self.env.spec.name}2.params"
-        )
-        logging.info("Training completed. Model parameters saved.")
+        self.save(f"model_params/{self.env.spec.name}.params")
+        logging.info("Learning completed. Model parameters saved.")
 
-    def decay_epsilon(self):
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
+    def save(self, path):
+        torch.save(self.Q.state_dict(), path)
 
-    def load(self, model):
-        self.q_net.load_state_dict(torch.load(model, weights_only=True))
-        self.q_net.eval()
+    def load(self, path):
+        self.Q.load_state_dict(torch.load(path, weights_only=True))

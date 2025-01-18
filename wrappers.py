@@ -22,7 +22,7 @@ class PreprocessFrameWrapper(gym.Wrapper):
         return self.preprocess(obs), reward, terminated, truncated, info
 
 
-class StackFrameWrapper(gym.Wrapper):
+class StackFramesWrapper(gym.Wrapper):
     def __init__(self, env, k):
         gym.Wrapper.__init__(self, env)
         self.buffer = deque(maxlen=k)
