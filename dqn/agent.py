@@ -5,53 +5,10 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from utils.memories import ReplayBuffer
+from utils.schedule import EpsilonDecaySchedule
 
-from dqn_atari import DQN
-
-
-class EpsilonDecaySchedule:
-    def __init__(self, start, end, steps):
-        self.step = 0
-        self.schedule = np.linspace(start, end, steps)
-
-    def next_epsilon(self):
-        self.step += 1
-        return self.schedule[min(self.step, len(self.schedule) - 1)]
-
-
-class ReplayBuffer:
-    def __init__(self, memory_size):
-        self.obs_buf = np.zeros([memory_size, 4, 84, 84], dtype=np.uint8)
-        self.next_obs_buf = np.zeros([memory_size, 4, 84, 84], dtype=np.uint8)
-        self.rew_buf = np.zeros([memory_size], dtype=np.int16)
-        self.act_buf = np.zeros([memory_size], dtype=np.uint8)
-        self.done_buf = np.zeros([memory_size], dtype=np.bool)
-
-        self.memory_size = memory_size
-        self.idx = 0
-        self.size = 0
-
-    def store(self, transition):
-        (
-            self.obs_buf[self.idx],
-            self.act_buf[self.idx],
-            self.rew_buf[self.idx],
-            self.next_obs_buf[self.idx],
-            self.done_buf[self.idx],
-        ) = transition
-
-        self.idx = (self.idx + 1) % self.memory_size
-        self.size = min(self.size + 1, self.memory_size)
-
-    def sample(self, batch_size):
-        idxs = np.random.randint(0, self.size, batch_size)
-        return (
-            self.obs_buf[idxs],
-            self.act_buf[idxs],
-            self.rew_buf[idxs],
-            self.next_obs_buf[idxs],
-            self.done_buf[idxs],
-        )
+from dqn import DQN
 
 
 class DQNAgent:
