@@ -9,7 +9,7 @@ from utils.memories import ReplayBuffer
 from utils.schedule import EpsilonDecaySchedule
 from dqn import DQN
 
-SAVE_EVERY_N_STEPS = 100000
+SAVE_EVERY_N_STEPS = 1000000
 
 
 class DQNAgent:
@@ -93,6 +93,8 @@ class DQNAgent:
             logging.info("Replay started")
 
     def learn(self, episodes):
+        logging.info("Begin training")
+
         epsilon_schedule = EpsilonDecaySchedule(
             self.epsilon, self.epsilon_min, self.epsilon_decay_steps
         )
@@ -120,24 +122,30 @@ class DQNAgent:
                 obs = next_obs
 
                 # Saving
-                if self.steps % SAVE_EVERY_N_STEPS == 0:
+                if (
+                    self.training_steps >= 1
+                    and self.training_steps % SAVE_EVERY_N_STEPS == 0
+                ):
                     logging.info("Saving model parameters...")
                     self.save(f"model_params/{self.env.spec.name}.params.tmp")
                     logging.info("Model parameters saved.")
 
-                
-            
-            # Logging       
-            logging.info(f"[Episode {episode}] "
-                         f"reward: {self.env.episode_returns}, "
-                         f"length: {self.env.episode_lengths}, "
-                         f"epsilon: {self.epsilon:.2}")
-            logging.info(f"step: {self.steps}, "
-                         f"training step: {self.training_steps}")
+            # Logging
+            logging.info(
+                f"[Episode {episode}] "
+                f"reward: {self.env.episode_returns}, "
+                f"length: {self.env.episode_lengths}, "
+                f"epsilon: {self.epsilon:.2f}, "
+                f"step: {self.steps}, "
+                f"training step: {self.training_steps}"
+            )
             if episode % 10 == 0:
-                logging.info(f"Mean reward (last 100): {np.mean(self.env.return_queue)}")
-                logging.info(f"Mean length (last 100): {np.mean(self.env.length_queue)}")
-
+                logging.info(
+                    f"Mean reward (last 100): {np.mean(self.env.return_queue):.2f}"
+                )
+                logging.info(
+                    f"Mean length (last 100): {np.mean(self.env.length_queue):.2f}"
+                )
 
         # Saving
         logging.info("Saving model parameters...")
