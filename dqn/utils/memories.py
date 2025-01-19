@@ -5,8 +5,8 @@ class ReplayBuffer:
     def __init__(self, memory_size):
         self.obs_buf = np.zeros([memory_size, 4, 84, 84], dtype=np.uint8)
         self.next_obs_buf = np.zeros([memory_size, 4, 84, 84], dtype=np.uint8)
-        self.rew_buf = np.zeros([memory_size], dtype=np.int16)
-        self.act_buf = np.zeros([memory_size], dtype=np.uint8)
+        self.rew_buf = np.zeros([memory_size], dtype=np.float32)
+        self.act_buf = np.zeros([memory_size], dtype=np.int64)
         self.done_buf = np.zeros([memory_size], dtype=np.bool)
 
         self.memory_size = memory_size

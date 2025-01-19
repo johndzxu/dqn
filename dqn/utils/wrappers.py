@@ -4,35 +4,26 @@ import cv2
 import numpy as np
 
 
-class PreprocessFrameWrapper(gym.Wrapper):
+class PreprocessFrameWrapper(gym.ObservationWrapper):
     def __init__(self, env):
-        gym.Wrapper.__init__(self, env)
+        super().__init__(env)
 
-    def preprocess(self, obs):
+    def observation(self, obs):
         # cropped_frame = obs[34:194]
         # downsampled_frame = cv2.resize(cropped_frame, dsize=(84, 84))
-        downsampled_frame = cv2.resize(obs, dsize=(84, 84))
-        return downsampled_frame
-
-    def reset(self):
-        obs, info = self.env.reset()
-        return self.preprocess(obs), info
-
-    def step(self, action):
-        obs, reward, terminated, truncated, info = self.env.step(action)
-        return self.preprocess(obs), reward, terminated, truncated, info
-
+        # downsampled_frame = cv2.resize(obs, dsize=(84, 84))
+        return cv2.resize(obs, dsize=(84, 84))
 
 class StackFramesWrapper(gym.Wrapper):
-    def __init__(self, env, k):
-        gym.Wrapper.__init__(self, env)
-        self.buffer = deque(maxlen=k)
-        self.k = k
+    def __init__(self, env, framestack):
+        super().__init__(env)
+        self.buffer = deque(maxlen=framestack)
+        self.framestack = framestack
 
-    def reset(self):
-        obs, info = self.env.reset()
+    def reset(self, seed=None, options=None):
+        obs, info = self.env.reset(seed=seed, options=options)
 
-        for _ in range(self.k):
+        for _ in range(self.framestack):
             self.buffer.append(obs)
         return np.stack(self.buffer), info
 

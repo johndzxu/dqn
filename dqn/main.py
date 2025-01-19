@@ -1,8 +1,9 @@
 import logging
-
+import gymnasium as gym
 import ale_py
 from matplotlib import pyplot as plt
 import torch
+
 from utils.wrappers import *
 from agent import DQNAgent
 
@@ -80,7 +81,7 @@ if __name__ == "__main__":
         "ALE/MsPacman-v5",
         obs_type="grayscale",
         render_mode="rgb_array",
-        full_action_space=False,
+        frameskip=1
     )
 
     env = gym.wrappers.RecordVideo(
@@ -91,6 +92,7 @@ if __name__ == "__main__":
     )
     env = PreprocessFrameWrapper(env)
     env = StackFramesWrapper(env, 4)
+    # env = gym.wrappers.AtariPreprocessing(env)
 
     agent = DQNAgent(env, num_actions=9, memory_size=200000)
     # logging.info("Loading model parameters...")

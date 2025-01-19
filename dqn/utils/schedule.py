@@ -1,3 +1,6 @@
+import numpy as np
+
+
 class EpsilonDecaySchedule:
     def __init__(self, start, end, steps):
         self.step = 0

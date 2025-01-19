@@ -1,38 +1,36 @@
-from collections import deque
-import logging
-import random
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import logging
+from gymnasium.wrappers import RecordEpisodeStatistics
+
 from utils.memories import ReplayBuffer
 from utils.schedule import EpsilonDecaySchedule
-
 from dqn import DQN
+
+SAVE_EVERY_N_STEPS = 100000
 
 
 class DQNAgent:
     def __init__(
         self,
         env,
+        frame_stack=4,
+        num_actions=6,
+        memory_size=1000000,
+        learning_rate=0.00025,
         epsilon=1.0,
         epsilon_min=0.1,
         epsilon_decay_steps=1000000,
-        memory_size=100000,
-        learning_rate=0.00025,
-        gamma=0.99,
         batch_size=32,
-        k=4,
-        num_actions=6,
-        tau=10000,
+        gamma=0.99,
+        learning_freq=4,
+        target_update_freq=10000,
     ):
-        self.env = env
-        self.Q = DQN(k, num_actions)
-        self.target_Q = DQN(k, num_actions)
-        self.update_target_Q()
-        self.epsilon = epsilon
-        self.epsilon_min = epsilon_min
-        self.epsilon_decay_steps = epsilon_decay_steps
+        self.env = RecordEpisodeStatistics(env)
+        self.Q = DQN(frame_stack, num_actions)
+        self.target_Q = DQN(frame_stack, num_actions)
         self.memory = ReplayBuffer(memory_size)
         self.criterion = nn.SmoothL1Loss()
         self.optimizer = optim.RMSprop(
@@ -41,18 +39,25 @@ class DQNAgent:
             alpha=0.95,
             eps=0.01,
         )
-        self.gamma = gamma
-        self.batch_size = batch_size
-        self.tau = tau
-        self.training_steps = 0
 
-    def get_action(self, obs: np.ndarray):
-        if np.random.random() < self.epsilon:
-            return self.env.action_space.sample()
+        self.epsilon = epsilon
+        self.epsilon_min = epsilon_min
+        self.epsilon_decay_steps = epsilon_decay_steps
+        self.batch_size = batch_size
+        self.gamma = gamma
+        self.learning_freq = learning_freq
+        self.target_update_freq = target_update_freq
+
+        self.steps = 0
+        self.training_steps = 0
+        self.update_target_Q()
+
+    def get_action(self, obs):
+        if np.random.random() > self.epsilon:
+            obs = torch.Tensor(obs).unsqueeze(0)
+            return torch.argmax(self.Q(obs), dim=1).item()
         else:
-            q_values = self.Q(torch.Tensor(obs))
-            action = torch.argmax(q_values).item()
-            return action
+            return self.env.action_space.sample()
 
     def update_target_Q(self):
         self.target_Q.load_state_dict(self.Q.state_dict())
@@ -62,36 +67,35 @@ class DQNAgent:
             self.memory.sample(self.batch_size)
         )
 
-        obs_batch = torch.as_tensor(np.array(obs_batch), dtype=torch.float32)
-        next_obs_batch = torch.as_tensor(np.array(next_obs_batch), dtype=torch.float32)
-        act_batch = torch.as_tensor(act_batch, dtype=torch.int64)
-        reward_batch = torch.as_tensor(reward_batch)
-        done_batch = torch.as_tensor(done_batch)
+        obs_batch = torch.from_numpy(obs_batch).type(torch.float32)
+        next_obs_batch = torch.from_numpy(next_obs_batch).type(torch.float32)
+        act_batch = torch.from_numpy(act_batch)
+        reward_batch = torch.from_numpy(reward_batch)
+        done_batch = torch.from_numpy(done_batch.astype(np.uint8))
 
-        q_values = self.Q(obs_batch)
-        q_values = q_values.gather(1, act_batch.unsqueeze(-1)).squeeze(-1)
+        Q_values = self.Q(obs_batch)
+        Q_values = Q_values.gather(1, act_batch.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            next_q_values = self.target_Q(next_obs_batch)
-            max_next_q_values = next_q_values.max(dim=1)[0]
-            targets = (
-                reward_batch + self.gamma * max_next_q_values * (~done_batch).float()
+            next_Q_values = self.target_Q(next_obs_batch)
+            next_Q_values = next_Q_values.max(dim=1)[0]
+            target_Q_values = reward_batch + self.gamma * next_Q_values * (
+                1 - done_batch
             )
 
         self.optimizer.zero_grad()
-        loss = self.criterion(q_values, targets)
+        loss = self.criterion(Q_values, target_Q_values)
         loss.backward()
         self.optimizer.step()
         self.training_steps += 1
+
+        if self.training_steps == 1:
+            logging.info("Replay started")
 
     def learn(self, episodes):
         epsilon_schedule = EpsilonDecaySchedule(
             self.epsilon, self.epsilon_min, self.epsilon_decay_steps
         )
-        episode_rewards = []
-        avg_episode_rewards = []
-        episode_frames = []
-        avg_episode_frames = []
 
         for episode in range(1, episodes + 1):
             obs, _ = self.env.reset()
@@ -99,41 +103,44 @@ class DQNAgent:
             episode_reward = 0
 
             while not done:
-                action = self.get_action(obs[np.newaxis])
+                action = self.get_action(obs)
                 next_obs, reward, terminated, truncated, info = self.env.step(action)
-                done = terminated or truncated
-                episode_reward += reward
-
                 self.memory.store([obs, action, reward, next_obs, done])
-                if self.memory.size >= 50000 and info["frame_number"] % 4 == 0:
+
+                if self.memory.size >= 50000 and self.steps % self.learning_freq == 0:
                     self.replay()
 
-                obs = next_obs
-                self.epsilon = epsilon_schedule.next_epsilon()
-                if self.training_steps % self.tau == 0:
+                if self.training_steps % self.target_update_freq == 0:
                     self.update_target_Q()
 
-            logging.info(
-                f"Episode: {episode}/{episodes}, Reward: {episode_reward}, Epsilon: {self.epsilon:.2}"
-            )
-            logging.info(
-                f"Episode Frame: {info['episode_frame_number']}, Total Frame: {info['frame_number']}"
-            )
-            episode_rewards.append(episode_reward)
-            episode_frames.append(info["episode_frame_number"])
-            if episode >= 10:
-                avg_episode_rewards.append(np.mean(episode_rewards[-10:]))
-                avg_episode_frames.append(np.mean(episode_frames[-10:]))
-            else:
-                avg_episode_rewards.append(0)
-                avg_episode_frames.append(0)
+                self.epsilon = epsilon_schedule.next_epsilon()
+                self.steps += 1
+                episode_reward += reward
+                done = terminated or truncated
+                obs = next_obs
 
-            if episode % 25 == 0:
-                logging.info(f"Episode Reward (Last 10): {avg_episode_rewards[-1]}")
-                logging.info(f"Episode Frames (Last 10): {avg_episode_frames[-1]}")
-                self.save(f"model_params/{self.env.spec.name}.params.tmp")
-                logging.info("Model parameters saved.")
+                # Saving
+                if self.steps % SAVE_EVERY_N_STEPS == 0:
+                    logging.info("Saving model parameters...")
+                    self.save(f"model_params/{self.env.spec.name}.params.tmp")
+                    logging.info("Model parameters saved.")
 
+                
+            
+            # Logging       
+            logging.info(f"[Episode {episode}] "
+                         f"reward: {self.env.episode_returns}, "
+                         f"length: {self.env.episode_lengths}, "
+                         f"epsilon: {self.epsilon:.2}")
+            logging.info(f"step: {self.steps}, "
+                         f"training step: {self.training_steps}")
+            if episode % 10 == 0:
+                logging.info(f"Mean reward (last 100): {np.mean(self.env.return_queue)}")
+                logging.info(f"Mean length (last 100): {np.mean(self.env.length_queue)}")
+
+
+        # Saving
+        logging.info("Saving model parameters...")
         self.save(f"model_params/{self.env.spec.name}.params")
         logging.info("Learning completed. Model parameters saved.")
 
