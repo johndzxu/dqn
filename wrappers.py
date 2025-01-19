@@ -9,8 +9,9 @@ class PreprocessFrameWrapper(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
 
     def preprocess(self, obs):
-        cropped_frame = obs[34:194]
-        downsampled_frame = cv2.resize(cropped_frame, dsize=(84, 84))
+        # cropped_frame = obs[34:194]
+        # downsampled_frame = cv2.resize(cropped_frame, dsize=(84, 84))
+        downsampled_frame = cv2.resize(obs, dsize=(84, 84))
         return downsampled_frame
 
     def reset(self):

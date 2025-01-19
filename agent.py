@@ -67,17 +67,27 @@ class DQNAgent:
         batch_size=32,
         k=4,
         num_actions=6,
+        tau=10000,
     ):
         self.env = env
         self.Q = DQN(k, num_actions)
+        self.target_Q = DQN(k, num_actions)
+        self.update_target_Q()
         self.epsilon = epsilon
         self.epsilon_min = epsilon_min
         self.epsilon_decay_steps = epsilon_decay_steps
         self.memory = ReplayBuffer(memory_size)
-        self.criterion = nn.L1Loss()
-        self.optimizer = optim.Adam(self.Q.parameters(), lr=learning_rate)
+        self.criterion = nn.SmoothL1Loss()
+        self.optimizer = optim.RMSprop(
+            self.Q.parameters(),
+            lr=learning_rate,
+            alpha=0.95,
+            eps=0.01,
+        )
         self.gamma = gamma
         self.batch_size = batch_size
+        self.tau = tau
+        self.training_steps = 0
 
     def get_action(self, obs: np.ndarray):
         if np.random.random() < self.epsilon:
@@ -86,6 +96,9 @@ class DQNAgent:
             q_values = self.Q(torch.Tensor(obs))
             action = torch.argmax(q_values).item()
             return action
+
+    def update_target_Q(self):
+        self.target_Q.load_state_dict(self.Q.state_dict())
 
     def replay(self):
         obs_batch, act_batch, reward_batch, next_obs_batch, done_batch = (
@@ -102,7 +115,7 @@ class DQNAgent:
         q_values = q_values.gather(1, act_batch.unsqueeze(-1)).squeeze(-1)
 
         with torch.no_grad():
-            next_q_values = self.Q(next_obs_batch)
+            next_q_values = self.target_Q(next_obs_batch)
             max_next_q_values = next_q_values.max(dim=1)[0]
             targets = (
                 reward_batch + self.gamma * max_next_q_values * (~done_batch).float()
@@ -112,6 +125,7 @@ class DQNAgent:
         loss = self.criterion(q_values, targets)
         loss.backward()
         self.optimizer.step()
+        self.training_steps += 1
 
     def learn(self, episodes):
         epsilon_schedule = EpsilonDecaySchedule(
@@ -134,11 +148,13 @@ class DQNAgent:
                 episode_reward += reward
 
                 self.memory.store([obs, action, reward, next_obs, done])
-                if self.memory.size >= 50000:
+                if self.memory.size >= 50000 and info["frame_number"] % 4 == 0:
                     self.replay()
 
                 obs = next_obs
                 self.epsilon = epsilon_schedule.next_epsilon()
+                if self.training_steps % self.tau == 0:
+                    self.update_target_Q()
 
             logging.info(
                 f"Episode: {episode}/{episodes}, Reward: {episode_reward}, Epsilon: {self.epsilon:.2}"

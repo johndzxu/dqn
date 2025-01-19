@@ -75,7 +75,13 @@ def main():
 
 
 if __name__ == "__main__":
-    env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
+    # env = gym.make("Pong-v4", obs_type="grayscale", render_mode="rgb_array")
+    env = gym.make(
+        "ALE/MsPacman-v5",
+        obs_type="grayscale",
+        render_mode="rgb_array",
+        full_action_space=False,
+    )
 
     env = gym.wrappers.RecordVideo(
         env,
@@ -86,9 +92,9 @@ if __name__ == "__main__":
     env = PreprocessFrameWrapper(env)
     env = StackFramesWrapper(env, 4)
 
-    agent = DQNAgent(env, epsilon=0.1, memory_size=200000, learning_rate=0.001)
-    logging.info("Loading model parameters...")
-    agent.load("model_params/Pong.params.tmp")
+    agent = DQNAgent(env, num_actions=9, memory_size=200000)
+    # logging.info("Loading model parameters...")
+    # agent.load("model_params/Pong.params.tmp")
 
     logging.info("Begin training")
     agent.learn(episodes=10000)
