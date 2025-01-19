@@ -3,7 +3,7 @@ import logging
 import ale_py
 from matplotlib import pyplot as plt
 import torch
-from wrappers import *
+from utils.wrappers import *
 from agent import DQNAgent
 
 logging.basicConfig(
